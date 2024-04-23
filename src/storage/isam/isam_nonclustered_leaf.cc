@@ -66,5 +66,31 @@ void IsamNonClusteredLeaf::insert_record(RID rid, int64_t key) {
 
 
 void IsamNonClusteredLeaf::delete_record(RID rid) {
-    // TODO: implement
+    RecordInfo* buf;
+    bool found = false;
+    for (uint32_t i = 0; i < *N; i++)
+    {
+        *buf = records[i];
+        if (buf->rid == rid)
+        {
+            RecordInfo* delete_pos = records + i*sizeof(RecordInfo);
+            RecordInfo* start = records + (i + 1)*sizeof(RecordInfo);
+            RecordInfo* end = records + *N*sizeof(RecordInfo);
+            if (start != end)
+            {
+                std::move(start, end, delete_pos);
+                *N--;
+                found = true;
+            }
+        }
+    }
+    // if not in leaf page we must search on overflow pages
+    // delete_record does not push confirmation up the stack
+    // if record is not found delete fails silently
+    if (!found)
+    {
+        IsamNonClusteredLeaf child(isam, *overflow);
+        child.delete_record(rid);
+    }
+    
 }
