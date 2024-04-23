@@ -61,36 +61,48 @@ IsamNonClusteredLeaf::~IsamNonClusteredLeaf() {
 
 
 void IsamNonClusteredLeaf::insert_record(RID rid, int64_t key) {
-    // TODO: implement
+    uint32_t header_space = sizeof(*N) + sizeof(*prev) + sizeof(*next) + sizeof(*overflow);
+    uint32_t space_left = page.SIZE - header_space - *N*sizeof(RecordInfo);
+    if (space_left >= sizeof(RecordInfo)) {
+        RecordInfo new_record(key, rid);
+        records[*N] = new_record;
+        *N++;
+    } else {
+        if (*overflow == -1) {
+            IsamNonClusteredLeaf overflow_leaf(isam);
+            *overflow = overflow_leaf.page.page_id.page_number;
+            overflow_leaf.insert_record(rid, key);
+        } else {
+            IsamNonClusteredLeaf overflow_leaf(isam, *overflow);
+            overflow_leaf.insert_record(rid, key);
+        }
+    }
 }
 
 
 void IsamNonClusteredLeaf::delete_record(RID rid) {
-    RecordInfo* buf;
     bool found = false;
-    for (uint32_t i = 0; i < *N; i++)
-    {
-        *buf = records[i];
-        if (buf->rid == rid)
-        {
-            RecordInfo* delete_pos = records + i*sizeof(RecordInfo);
-            RecordInfo* start = records + (i + 1)*sizeof(RecordInfo);
-            RecordInfo* end = records + *N*sizeof(RecordInfo);
-            if (start != end)
-            {
+    for (uint32_t i = 0; i < *N; i++) {
+        if (records[i].rid == rid) { // Found record to delete
+            
+            // if on last record just decreasing N will "delete", no need to move
+            if (i != *N-1) {
+                RecordInfo* start = records + (i + 1)*sizeof(RecordInfo);
+                RecordInfo* end = records + *N*sizeof(RecordInfo);
+                RecordInfo* delete_pos = records + i*sizeof(RecordInfo);
                 std::move(start, end, delete_pos);
-                *N--;
-                found = true;
             }
+            *N--;
+            found = true;
         }
     }
     // if not in leaf page we must search on overflow pages
     // delete_record does not push confirmation up the stack
     // if record is not found delete fails silently
-    if (!found)
-    {
-        IsamNonClusteredLeaf child(isam, *overflow);
-        child.delete_record(rid);
+    // It is assumed that record Exists when calling this function
+    if (!found) {
+        IsamNonClusteredLeaf overflow_leaf(isam, *overflow);
+        overflow_leaf.delete_record(rid);
     }
     
 }
